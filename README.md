@@ -1,300 +1,131 @@
-# Incremental Learning Framework for DNI Prediction
+# Prediction of DNI Using Incremental Learning
 
-This project develops an incremental learning framework for predicting **Direct Normal Irradiance (DNI)** using physics-informed machine learning. The framework is built on top of an existing DNI prediction pipeline and extends it with monthly model updates, replay buffer maintenance, and sky-condition-specific neural networks.
+This repository predicts **Direct Normal Irradiance (DNI)** from meteorological and solar-geometry features. It extends the original machine-learning notebook with sky-condition-specific neural networks, monthly incremental updates, and replay buffers.
 
-## Project Overview
+## Experiment design
 
-Direct Normal Irradiance (DNI) is an important solar radiation component for solar energy systems, especially concentrated solar power (CSP) and solar tracking applications. However, DNI is more difficult and expensive to measure directly compared with Global Horizontal Irradiance (GHI).  
+The split is strictly chronological:
 
-This project predicts DNI using commonly available meteorological and solar geometry features, including:
+| Period | Role | Samples |
+|---|---|---:|
+| 2011–2021 | Train the base models | 96,337 daytime records |
+| 2022 | Monthly incremental learning | 8,759 daytime records |
+| 2023 | Independent final test | 8,759 daytime records |
+
+For each month in 2022, the model follows a **predict-before-update** protocol:
+
+1. Load the checkpoint available at the end of the previous month.
+2. Predict the current month and record its metrics.
+3. Fine-tune with the current month's labelled data and replay samples.
+4. Save the best checkpoint and add the current samples to the replay buffer.
+5. Use the updated checkpoint from the next month onward.
+
+The 2023 test set is never used for training, scaler fitting, replay, model selection, or hyperparameter tuning.
+
+## Inputs and model
+
+The seven model inputs are:
 
 - Global Horizontal Irradiance (GHI)
 - Temperature
-- Dew Point
-- Atmospheric Pressure
-- Clearness Index (Kt)
-- Solar Cosine Zenith Angle
-- Extraterrestrial Horizontal Irradiance (G0)
+- Dew point
+- Atmospheric pressure
+- Clearness index (`Kt`)
+- Cosine of the solar zenith angle
+- Extraterrestrial horizontal irradiance (`G0`)
 
-The main goal is to improve DNI prediction under changing weather and seasonal conditions by using an **incremental learning strategy**.
+Samples are divided into three sky conditions:
 
-## Main Idea
-
-Instead of training one static model once and using it forever, this framework updates the model over time as new data becomes available.
-
-The workflow is:
-
-1. Train a **base model** using historical data.
-2. Split new incoming data into **monthly blocks**.
-3. Maintain a **replay buffer** for each sky condition.
-4. Fine-tune the previous model checkpoint using the current monthly data plus replay samples.
-5. Evaluate monthly performance and final aggregated performance.
-
-This design helps the model adapt to new patterns while reducing catastrophic forgetting.
-
-## Dataset
-
-The dataset comes from the **National Solar Radiation Database (NSRDB)** and covers solar and meteorological measurements for Bethlehem, Pennsylvania.
-
-The notebook combines data from multiple years and uses the following temporal structure:
-
-- Historical data for base training
-- Monthly data blocks for incremental learning
-- Later-year data for final testing
-
-Default configuration:
-
-```python
-BASE_TRAIN_END = "2021-12-31 23:59:59"
-INCREMENTAL_START = "2022-01-01 00:00:00"
-TEST_START = "2023-01-01 00:00:00"
-```
-
-## Feature Engineering
-
-The preprocessing pipeline creates several physics-related features:
-
-### 1. Timestamp Construction
-
-The original time columns are combined into a single timestamp:
-
-```python
-["Year", "Month", "Day", "Hour", "Minute"]
-```
-
-### 2. Solar Geometry Features
-
-The framework computes:
-
-- Day of year
-- Solar zenith angle
-- Solar cosine zenith angle
-- Extraterrestrial irradiance
-- Horizontal extraterrestrial irradiance `G0`
-
-### 3. Clearness Index
-
-The clearness index is calculated as:
-
-```text
-Kt = GHI / G0
-```
-
-This value is used to classify sky conditions.
-
-### 4. Daytime Filtering
-
-Nighttime samples are removed before training because DNI prediction is only meaningful when solar radiation is available.
-
-## Sky Condition Classification
-
-The framework trains separate models for different sky conditions. The categories are based on the clearness index:
-
-| Sky Condition | Rule |
+| Sky condition | Rule |
 |---|---|
 | Overcast | `Kt <= 0.35` |
-| Partly Cloudy | `0.35 < Kt <= 0.70` |
-| Clear Sky | `Kt > 0.70` |
+| Partly cloudy | `0.35 < Kt <= 0.70` |
+| Clear sky | `Kt > 0.70` |
 
-This allows each model to specialize in a different irradiance pattern.
+Each condition uses an independent dense neural network with hidden layers of 128, 64, and 32 units, Batch Normalization, and ReLU activation. The base scaler remains fixed during incremental updates. Each sky condition also has a replay buffer with a capacity of 12,000 samples; at most 3,000 replay samples are drawn per monthly update.
 
-## Model Architecture
-
-Each sky condition uses an independent neural network with the same structure:
-
-```text
-Input Layer
-Dense(128) + Batch Normalization + ReLU
-Dense(64) + Batch Normalization + ReLU
-Dense(32) + Batch Normalization + ReLU
-Dense(1)
-```
-
-The model is trained with:
-
-- Optimizer: Adam
-- Loss function: Mean Squared Error (MSE)
-- Metrics: MAE and MSE
-- Early stopping
-- Model checkpointing
-
-## Physics-Based Constraint
-
-To improve physical consistency, predictions are constrained by the relationship between GHI and DNI:
+Predictions are clipped to the physical range:
 
 ```text
 0 <= DNI <= GHI / cos(theta_z)
 ```
 
-This prevents the model from generating physically unrealistic DNI values.
+## 2023 independent-test results
 
-## Incremental Learning Framework
+| Model | R² | MAE (W/m²) | RMSE (W/m²) |
+|---|---:|---:|---:|
+| Base model | 0.9615 | 41.44 | 66.32 |
+| Incremental model | 0.9654 | 39.52 | 62.83 |
 
-### Base Training
+The incremental model reduced overall MAE by **4.64%** and RMSE by **5.26%**.
 
-The base model is trained using historical daytime data before the incremental learning period. Each sky condition has:
+Performance varied by weather condition:
 
-- One scaler
-- One neural network model
-- One checkpoint
-- One replay buffer
+- **Clear sky:** the physical relationship between DNI, GHI, `Kt`, and solar geometry is stable. The base model was already strong (`R² = 0.9404`), so the incremental improvement was small but consistent; MAE fell by 3.26%.
+- **Partly cloudy:** recent data corrected a systematic underestimation. Mean bias improved from −26.19 to −12.48 W/m², 57.2% of samples had lower absolute error, and MAE fell by 7.41%. This remained the most difficult category in absolute terms, with an incremental-model MAE of 64.61 W/m².
+- **Overcast:** MAE increased by 10.55%, while RMSE decreased by 3.43%. The model reduced several large high-DNI errors but increased smaller errors among the many zero and low-DNI samples.
 
-### Monthly Update
+Detailed tables and figures are available in [`results/`](results/). A Chinese explanation is available in [`results/实验结果说明.md`](results/%E5%AE%9E%E9%AA%8C%E7%BB%93%E6%9E%9C%E8%AF%B4%E6%98%8E.md).
 
-For each month, the framework:
-
-1. Loads the monthly data block.
-2. Splits the block by sky condition.
-3. Samples representative data from the replay buffer.
-4. Combines replay data with new monthly data.
-5. Loads the previous checkpoint.
-6. Fine-tunes the model for fewer epochs.
-7. Saves the updated checkpoint.
-8. Updates the replay buffer.
-9. Evaluates monthly performance.
-
-### Replay Buffer
-
-Each sky condition has its own replay buffer. The buffer stores representative historical samples and prevents the model from forgetting older patterns.
-
-The replay buffer uses:
-
-- Fixed maximum capacity
-- Bucket-based sampling by DNI level
-- Recent data retention
-- Stratified sampling for diversity
-
-Default parameters:
-
-```python
-REPLAY_CAPACITY_PER_CONDITION = 12000
-REPLAY_SAMPLE_SIZE_PER_UPDATE = 3000
-INCREMENTAL_EPOCHS = 15
-BASE_EPOCHS = 100
-BATCH_SIZE = 32
-```
-
-## Evaluation Metrics
-
-The project evaluates model performance using:
-
-- **R² Score**
-- **Mean Absolute Error (MAE)**
-- **Mean Squared Error (MSE)**
-
-Performance is evaluated in two ways:
-
-1. Monthly performance by sky condition
-2. Final aggregated performance across all three conditions
-
-## Output Files
-
-The framework saves outputs into:
-
-```text
-incremental_outputs/
-```
-
-Generated files include:
-
-| File | Description |
-|---|---|
-| `base_model_<condition>.keras` | Base model checkpoint for each sky condition |
-| `incremental_model_<condition>_<month>.keras` | Updated monthly checkpoint |
-| `monthly_incremental_report.csv` | Monthly metrics by condition |
-| `final_test_predictions.csv` | Final test predictions with actual and predicted DNI |
-
-## Visualization
-
-The notebook includes optional plots for:
-
-- Monthly MAE by sky condition
-- Actual vs. predicted DNI on the test set
-
-These visualizations help evaluate whether incremental updates improve stability over time.
-
-## Project Structure
-
-A recommended GitHub structure is:
+## Repository structure
 
 ```text
 .
-├── README.md
 ├── dni_incremental_learning_framework.ipynb
-├── incremental_outputs/
+├── scripts/
+│   ├── check_experiment.py
+│   ├── run_notebook.py
+│   ├── update_notebook.py
+│   └── verify_results.py
+├── results/
+│   ├── final_test_comparison.csv
 │   ├── monthly_incremental_report.csv
-│   ├── final_test_predictions.csv
-│   └── model checkpoints
+│   ├── run_summary.json
+│   └── figures and Chinese result notes
 ├── requirements.txt
-└── data/
-    └── raw or processed data files
+└── .gitignore
 ```
 
-## How to Run
-
-1. Clone the repository.
+## Run the notebook
 
 ```bash
-git clone <your-repository-url>
-cd <your-repository-name>
+git clone https://github.com/Minnie0611/Prediction-of-DNI-using-Machine-Learning.git
+cd Prediction-of-DNI-using-Machine-Learning
+python -m venv .venv
 ```
 
-2. Install dependencies.
+Activate the environment, then install the dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Open the notebook.
+Run interactively:
 
 ```bash
 jupyter notebook dni_incremental_learning_framework.ipynb
 ```
 
-4. Run the notebook from top to bottom.
+Or execute the notebook from the command line while preserving outputs:
 
-5. Check outputs in:
-
-```text
-incremental_outputs/
+```bash
+python scripts/run_notebook.py
 ```
 
-## Requirements
+The notebook downloads the published yearly CSV files on first use and caches them in `data_cache/`. Generated checkpoints, replay buffers, predictions, and reports are written to `incremental_outputs/`.
 
-Main Python packages:
+## Validation scripts
 
-```text
-numpy
-pandas
-matplotlib
-scikit-learn
-tensorflow
-keras
-jupyter
+```bash
+python scripts/check_experiment.py
+python scripts/verify_results.py
 ```
 
-## Key Contributions
+`check_experiment.py` checks the chronological boundaries, replay-buffer behavior, and predict-before-update order. `verify_results.py` recomputes saved metrics and checks model state after a complete run; it therefore requires the generated files in `incremental_outputs/`.
 
-This project contributes an adaptive DNI prediction pipeline with the following strengths:
+## Current limitations
 
-- Uses physics-informed feature engineering.
-- Separates data into sky-condition-specific models.
-- Applies physical constraints to prevent unrealistic predictions.
-- Introduces monthly incremental updates.
-- Uses replay buffers to reduce catastrophic forgetting.
-- Evaluates both condition-level and aggregated performance.
-
-## Future Work
-
-Possible improvements include:
-
-- Compare incremental learning against a static baseline model.
-- Test different replay buffer strategies.
-- Add concept drift detection.
-- Explore alternative models such as LightGBM, XGBoost, or LSTM.
-- Evaluate performance under seasonal and extreme-weather conditions.
-- Deploy the final model in a Streamlit dashboard.
-
-## Acknowledgement
-
-This project is related to solar irradiance prediction research at Lehigh University and focuses on improving DNI prediction for solar energy applications through physics-informed machine learning and incremental learning.
+- Results are from one site and one random seed.
+- Solar zenith angle uses the simplified formula retained from the original notebook.
+- The reported improvement combines the effects of new data, replay, and fine-tuning settings; an ablation study is still needed to isolate each contribution.
+- Overcast performance needs a dedicated strategy, such as zero-DNI classification followed by positive-DNI regression, robust loss functions, and replay-distribution experiments.

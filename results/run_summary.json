@@ -1,0 +1,96 @@
+{
+  "seed": 42,
+  "base_train_end": "2021-12-31 23:59:59",
+  "incremental_start": "2022-01-01 00:00:00",
+  "incremental_end_exclusive": "2023-01-01 00:00:00",
+  "test_start": "2023-01-01 00:00:00",
+  "test_end_exclusive": "2024-01-01 00:00:00",
+  "monthly_evaluation": "before_update",
+  "fixed_base_scaler": true,
+  "solar_zenith": "original_approximation",
+  "daytime_only": true,
+  "base_learning_rate": 0.001,
+  "incremental_learning_rate": 0.0001,
+  "base_max_epochs": 100,
+  "incremental_max_epochs": 15,
+  "replay_capacity": 12000,
+  "replay_sample_size": 3000,
+  "raw_rows": 227760,
+  "daytime_rows": 113855,
+  "tensorflow_version": "2.16.1",
+  "elapsed_seconds": 249.86630019999575,
+  "test_results": [
+    {
+      "model": "base",
+      "condition": "overcast",
+      "n_samples": 2995,
+      "R2": 0.2857586855989248,
+      "MAE": 13.335475994504751,
+      "MSE": 1113.6590042706775,
+      "RMSE": 33.37152984612299
+    },
+    {
+      "model": "base",
+      "condition": "partly_cloudy",
+      "n_samples": 3639,
+      "R2": 0.8256986321825244,
+      "MAE": 69.78217418326818,
+      "MSE": 8466.962058472483,
+      "RMSE": 92.0160967356934
+    },
+    {
+      "model": "base",
+      "condition": "clear_sky",
+      "n_samples": 2125,
+      "R2": 0.9404250308145947,
+      "MAE": 32.52611900374469,
+      "MSE": 2058.2967067950253,
+      "RMSE": 45.36845497474016
+    },
+    {
+      "model": "base",
+      "condition": "overall",
+      "n_samples": 8759,
+      "R2": 0.9614896818142882,
+      "MAE": 41.44252601203472,
+      "MSE": 4397.826709728447,
+      "RMSE": 66.31611199194693
+    },
+    {
+      "model": "incremental",
+      "condition": "overcast",
+      "n_samples": 2995,
+      "R2": 0.3339721505987372,
+      "MAE": 14.742360562633394,
+      "MSE": 1038.4836281876592,
+      "RMSE": 32.22551207021634
+    },
+    {
+      "model": "incremental",
+      "condition": "partly_cloudy",
+      "n_samples": 3639,
+      "R2": 0.8459518906998407,
+      "MAE": 64.61311682281536,
+      "MSE": 7483.128290706957,
+      "RMSE": 86.50507667592092
+    },
+    {
+      "model": "incremental",
+      "condition": "clear_sky",
+      "n_samples": 2125,
+      "R2": 0.9423204354191947,
+      "MAE": 31.466757185543283,
+      "MSE": 1992.8110656098663,
+      "RMSE": 44.64091246390318
+    },
+    {
+      "model": "incremental",
+      "condition": "overall",
+      "n_samples": 8759,
+      "R2": 0.9654331109545797,
+      "MAE": 39.519050236624224,
+      "MSE": 3947.4923884833447,
+      "RMSE": 62.82907279662294
+    }
+  ]
+}

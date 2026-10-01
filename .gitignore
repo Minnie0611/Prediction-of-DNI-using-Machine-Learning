@@ -1,0 +1,25 @@
+# Python and Jupyter
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Local data and generated training artifacts
+data_cache/
+incremental_outputs/
+*.keras
+*.joblib
+
+# Runtime and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+jupyter_runtime/
+
+# Local reports and presentation build artifacts
+.pptx-build*/
+.chart-data-*/
+*.pptx
+*.pdf
